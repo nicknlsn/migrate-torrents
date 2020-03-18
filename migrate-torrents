@@ -1,0 +1,192 @@
+#!/bin/bash
+# migrate torrents
+#
+# this script migrates the .torrent and .resume files of transmission torrents from one client to another. this script
+# assumes the actual data files are already in the correct location. in my case the data files for all my transmission
+# instances are in the same directory on my server, so migrating torrents does not involve moving data files.
+#
+# this script allows you to conditionally move torrents based on certain criteria, such as it's "Location", "Name", or
+# "Tracker"
+
+# make sure dependency tools are available
+for dependency in transmission-remote scp; do
+    command -v $dependency >/dev/null 2>&1 || { echo >&2 "This script requires $dependency but it's not installed. Aborting."; exit 1; }
+done
+
+# parse arguments
+positional=()
+while [[ $# -gt 0 ]]
+do
+    key="$1"
+    case $key in
+	-s|--source)
+	    source="$2"
+	    shift # past argument
+	    shift #past value
+	    ;;
+	-d|--destination)
+	    destination="$2"
+	    shift
+	    shift
+	    ;;
+	-c|--conditions)
+	    conditions="$2"
+	    shift
+	    shift
+	    ;;
+	-r|--remove-from-source)
+	    remove=true
+	    shift
+	    ;;
+	--dry-run)
+	    dryRun=true
+	    shift
+	    ;;
+	-v|--verbose)
+	    verbose=true
+	    shift
+	    ;;
+    esac
+done
+
+if [ ! -z $verbose ]
+then
+    echo "provided parameters:"
+    echo "source: $source"
+    echo "destination: $destination"
+    echo "conditions: $conditions"
+    echo "remove: $remove"
+    echo "verbose: $verbose"
+fi
+
+# make sure all required arguments are present
+if [ -z $source ]
+then
+    echo "source parameter is required but missing. use -s to add it. use -h for usage"
+    exit 1
+fi
+if [ -z $destination ]
+then
+    echo "destination parameter is required but missing. use -d to add it. use -h for usage"
+    exit 1
+fi
+
+IFS=',' read sourceRpcHost sourceSshHost sourceTorrentPath sourceResumePath <<< "$source"
+IFS=',' read destinationSshHost destinationTorrentPath destinationResumePath <<< "$destination"
+IFS=',' read -r -a conditionsArray <<< "$conditions"
+
+if [ ! -z $verbose ]
+then
+    echo "sourceRpcHost: $sourceRpcHost"
+    echo "sourceSshHost: $sourceSshHost"
+    echo "sourceTorrentPath: $sourceTorrentPath"
+    echo "sourceResumePath: $sourceResumePath"
+    echo "destinationSshHost: $destinationSshHost"
+    echo "destinationTorrentPath: $destinationTorrentPath"
+    echo "destinationResumePath: $destinationResumePath"
+    echo "conditionsArray: ${conditionsArray[*]}"
+fi
+if [ -z $sourceRpcHost ] || [ -z $sourceSshHost ] || [ -z $sourceTorrentPath ] || [ -z $sourceResumePath ]
+then
+    echo "could not parse source argument: $source"
+    echo "use -h for usage"
+    exit 1
+fi
+if [ -z $destinationSshHost ] || [ -z $destinationSshHost ] || [ -z $destinationResumePath ]
+then
+    echo "could not parse destination argument: $destination"
+    echo "use -h for usage"
+    exit 1
+fi
+if [ ! -z $conditions ] && [ ! -z $conditionsArray ]
+then
+    # make sure each condition can be parsed for evaluation
+    for i in "${!conditionsArray[@]}"
+    do
+	if [ ! -z $verbose ]; then echo "$i: ${conditionsArray[i]}"; fi
+	IFS=':' read grepItem value <<< "${conditionsArray[i]}"
+	if [ -z $grepItem ] || [ -z $value ]
+	then
+	    echo "could not parse condition at index $i: ${conditionsArray[i]}"
+	    echo "use -h for usage"
+	    exit 1;
+	fi
+    done
+fi
+
+# start doing work
+function evalutateCondition() {
+    local __result=$1
+    local results=()
+    for i in "${!conditionsArray[@]}"
+    do
+	if [ ! -z $verbose ]; then echo "evaluating condition $i: ${conditionsArray[i]}"; fi
+	IFS=':' read grepItem value <<< "${conditionsArray[i]}"
+	if [ ! -z $verbose ]; then echo "grepItem: $grepItem, value: $value"; fi
+	grepResult="$(echo "$2" | grep "$grepItem")"
+	if [ ! -z $verbose ]; then  echo "grep result: $grepResult"; fi
+	if [[ "$grepResult" == *"$value"* ]]; then results+=( true ); else results+=( false ); fi
+    done
+    if [ ! -z $verbose ]; then echo "evaluation results: ${results[*]}"; fi
+    [[ " ${results[@]} " =~ " false " ]] && result=false || result=true
+    eval $__result="'$result'"
+}
+
+# get number of torrents at the source
+if [ ! -z $verbose ]; then echo "querying sourceRpcHost to get torrent count"; fi
+until numTorrents="$(transmission-remote $sourceRpcHost -l | tail -n 2 | head -n 1 | awk '{print $1}' | tr -d '*')"; do sleep 1; done
+if [ ! -z $verbose ]; then echo "torrent count: $numTorrents"; fi
+if ! [[ $numTorrents =~ ^[0-9]+$ ]]; then echo "no torrents found at source"; exit 1; fi
+
+for i in $(seq 1 $numTorrents)
+do
+    # get the deets
+    if [ ! -z $verbose ]; then echo "torrent $i"; fi
+    until details="$(transmission-remote $sourceRpcHost -t $i -i)"; do sleep 1; done
+    until details="${details}\n$(transmission-remote $sourceRpcHost -t $i -it)"; do sleep 1; done
+    if [ ! -z $verbose ]; then echo -e "$details"; fi
+
+    # if there are conditions, only migrate if they evaluate to true
+    if [ ! -z $conditionsArray ]
+    then
+	evalutateCondition shouldMigrate "$details"
+    else
+	shouldMigrate=true
+    fi
+    if [ ! -z $verbose ]; then echo "should migrate: $shouldMigrate"; fi
+
+    if [ "$shouldMigrate" = "true" ]
+    then
+	# build commands
+	name="$(echo "$details" | grep "Name" | cut -d : -f 2 | sed -e 's/^[[:space:]]*//')"
+	cpTorrent=(scp "$sourceSshHost:$sourceTorrentPath/$name.*.torrent" "$destinationSshHost:$destinationTorrentPath/.")
+	cpResume=(scp "$sourceSshHost:$sourceResumePath/$name.*.resume" "$destinationSshHost:$destinationResumePath/.")
+	if [ ! -z $remove ]
+	then
+	    removeTorrent=(ssh $sourceSshHost "rm $sourceTorrentPath/$name.*.torrent")
+	    removeResume=(ssh $sourceSshHost "rm $sourceResumePath/$name.*.resume")
+	fi
+
+	if [ ! -z $dryRun ]
+	then
+	    echo "${cpTorrent[*]}"
+	    echo "${cpResume[*]}"
+	    if [ ! -z $remove ]
+	    then
+		echo "${removeTorrent[*]}"
+		echo "${removeResume[*]}"
+	    fi
+	else
+	    # execute
+	    "${cpTorrent[@]}"
+	    "${cpResume[@]}"
+	    if [ ! -z $remove ]
+	    then
+		"${removeTorrent[@]}"
+		"${removeResume[@]}"
+	    fi
+	fi
+    fi
+
+    if [ ! -z $verbose ]; then echo; fi
+done
