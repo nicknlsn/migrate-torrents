@@ -1,12 +1,53 @@
 #!/bin/bash
-# migrate torrents
-#
-# this script migrates the .torrent and .resume files of transmission torrents from one client to another. this script
-# assumes the actual data files are already in the correct location. in my case the data files for all my transmission
-# instances are in the same directory on my server, so migrating torrents does not involve moving data files.
-#
-# this script allows you to conditionally move torrents based on certain criteria, such as it's "Location", "Name", or
-# "Tracker"
+
+usage() {
+    echo "$(basename "$0")
+migrate torrents
+
+This script migrates the .torrent and .resume files of transmission torrents from one client to another. This script
+does not move the actual data files.
+
+Usage: $(basename "$0") -s sourceRpcHost,sourceSshHost,sourceTorrentPath,sourceResumePath \
+    			-d destinationSshHost,destinationTorrentPath,destinationResumePath
+
+Optionas:
+	-s	--source		a comma seperated list of required data in the following order:
+					sourceRpcHost: the host nd port of the source transmission client, e.g. 192.168.1.140:9091
+					sourceSshHost: the user and host details to establish an ssh connection with the source,
+					       	       e.g. root@192.168.1.140
+					sourceTorrentPath: the path on the source host to the torrent files
+					sourceResumePath: the pash on the source host to the resume files
+					example: 192.168.1.140:9091,root@192.168.1.140,/mnt/torrents/config/torrents,/mnt/torrents/config/resume
+
+	-d	--destination		a comma seperated list of required data in the following order:
+					destinationSshHost: the user and host details to establish an ssh connection with the
+						    	    destination, similar to the sourceSshHost above
+					destinationTorrentPath: the path on the destination host where the torrent files should
+								be placed
+					destinationResumePath: the path on the destination host where the resume files should be
+						       	       placed
+					example: 192.168.1.185:9091,root@192.168.1.185,/mnt/torrents/config,torrents,/mnt/torrents/config/resume
+
+	-c	--conditions		a comma separated list of key value pairs of conditions that should evaluate to true in
+					order for a torrent to be migrated. this argument is optional, if absent all torents will be
+					migrated.
+					example: Location:/downloads,Tracker:sometracker
+					this example will only migrate a torrent if it's location contains \"/downloads\" and the tracker
+					contains \"sometracker\". the way this works is the key (Location) is greped out of the torrent
+					details as returned from 'transmission-remote -t 1 -i' and 'transmission-remote -t 1 -it', and
+					if the result contains the text of the value it evaluates to true.
+
+	-r	--remove-from-source	remove the torrent from the source client after it has been migrated
+
+	--dry-run			don't actually migrate anything, intead just print the commands that will be run during the
+					actual migration
+
+	-v	--verbose		print lots of extra information about what is going on. without this option this script will
+					print nothing
+
+	-h	--help			print this usage message and exit
+    "
+}
 
 # make sure dependency tools are available
 for dependency in transmission-remote scp; do
@@ -45,6 +86,10 @@ do
 	-v|--verbose)
 	    verbose=true
 	    shift
+	    ;;
+	-h|--help)
+	    usage
+	    exit
 	    ;;
     esac
 done
