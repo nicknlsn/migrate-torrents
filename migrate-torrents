@@ -138,12 +138,12 @@ until numTorrents="$(transmission-remote $sourceRpcHost -l | tail -n 2 | head -n
 if [ ! -z $verbose ]; then echo "torrent count: $numTorrents"; fi
 if ! [[ $numTorrents =~ ^[0-9]+$ ]]; then echo "no torrents found at source"; exit 1; fi
 
-for i in $(seq 1 $numTorrents)
+for t in $(seq 1 $numTorrents)
 do
     # get the deets
-    if [ ! -z $verbose ]; then echo "torrent $i"; fi
-    until details="$(transmission-remote $sourceRpcHost -t $i -i)"; do sleep 1; done
-    until details="${details}\n$(transmission-remote $sourceRpcHost -t $i -it)"; do sleep 1; done
+    if [ ! -z $verbose ]; then echo "torrent $t"; fi
+    until details="$(transmission-remote $sourceRpcHost -t $t -i)"; do sleep 1; done
+    until details="${details}\n$(transmission-remote $sourceRpcHost -t $t -it)"; do sleep 1; done
     if [ ! -z $verbose ]; then echo -e "$details"; fi
 
     # if there are conditions, only migrate if they evaluate to true
@@ -157,33 +157,25 @@ do
 
     if [ "$shouldMigrate" = "true" ]
     then
-	# build commands
-	name="$(echo "$details" | grep "Name" | cut -d : -f 2 | sed -e 's/^[[:space:]]*//')"
-	cpTorrent=(scp "$sourceSshHost:$sourceTorrentPath/$name.*.torrent" "$destinationSshHost:$destinationTorrentPath/.")
-	cpResume=(scp "$sourceSshHost:$sourceResumePath/$name.*.resume" "$destinationSshHost:$destinationResumePath/.")
-	if [ ! -z $remove ]
-	then
-	    removeTorrent=(ssh $sourceSshHost "rm $sourceTorrentPath/$name.*.torrent")
-	    removeResume=(ssh $sourceSshHost "rm $sourceResumePath/$name.*.resume")
-	fi
+	name="$(echo "$details" | grep "Name:" | cut -d : -f 2 | sed -e 's/^[[:space:]]*//')"
 
 	if [ ! -z $dryRun ]
 	then
-	    echo "${cpTorrent[*]}"
-	    echo "${cpResume[*]}"
+	    echo "scp $sourceSshHost:$sourceTorrentPath/$name.*.torrent $destinationSshHost:$destinationTorrentPath/."
+	    echo "scp $sourceSshHost:$sourceResumePath/$name.*.resume $destinationSshHost:$destinationResumePath/."
 	    if [ ! -z $remove ]
 	    then
-		echo "${removeTorrent[*]}"
-		echo "${removeResume[*]}"
+		echo "transmission-remote $sourceRpcHost -t $t -r"
 	    fi
 	else
 	    # execute
-	    "${cpTorrent[@]}"
-	    "${cpResume[@]}"
+	    scp "$sourceSshHost:$sourceTorrentPath/\"$name\".*.torrent" "$destinationSshHost:$destinationTorrentPath/."
+	    scp "$sourceSshHost:$sourceResumePath/\"$name\".*.resume" "$destinationSshHost:$destinationResumePath/."
 	    if [ ! -z $remove ]
 	    then
-		"${removeTorrent[@]}"
-		"${removeResume[@]}"
+		if [ ! -z $verbose ]; then echo "removing torrent $t"; fi
+		until removeResponse="$(transmission-remote $sourceRpcHost -t $t -r)"; do sleep 1; done
+		if [ ! -z $verbose ]; then echo "remove response: $removeResponse"; fi
 	    fi
 	fi
     fi
