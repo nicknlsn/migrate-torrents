@@ -7,8 +7,7 @@ migrate torrents
 This script migrates the .torrent and .resume files of transmission torrents from one client to another. This script
 does not move the actual data files.
 
-Usage: $(basename "$0") -s sourceRpcHost,sourceSshHost,sourceTorrentPath,sourceResumePath \
-    			-d destinationSshHost,destinationTorrentPath,destinationResumePath
+Usage: $(basename "$0") -s sourceRpcHost,sourceSshHost,sourceTorrentPath,sourceResumePath -d destinationSshHost,destinationTorrentPath,destinationResumePath
 
 Optionas:
 	-s	--source		a comma seperated list of required data in the following order:
