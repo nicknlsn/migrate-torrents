@@ -74,6 +74,11 @@ do
 	    shift
 	    shift
 	    ;;
+	-l|--limit)
+	    limit="$2"
+	    shift
+	    shift
+	    ;;
 	-r|--remove-from-source)
 	    remove=true
 	    shift
@@ -98,6 +103,7 @@ then
     echo "provided parameters:"
     echo "source: $source"
     echo "destination: $destination"
+    echo "limit: $limit"
     echo "conditions: $conditions"
     echo "remove: $remove"
     echo "verbose: $verbose"
@@ -178,12 +184,17 @@ function evalutateCondition() {
 
 # get number of torrents at the source
 if [ ! -z $verbose ]; then echo "querying sourceRpcHost to get torrent count"; fi
-until numTorrents="$(transmission-remote $sourceRpcHost -l | tail -n 2 | head -n 1 | awk '{print $1}' | tr -d '*')"; do sleep 1; done
+until torrentList="$(transmission-remote $sourceRpcHost -l)"; do sleep 1; done
+numTorrents="$(echo "$torrentList" | tail -n 2 | head -n 1 | awk '{print $1}' | tr -d '*')"
 if [ ! -z $verbose ]; then echo "torrent count: $numTorrents"; fi
 if ! [[ $numTorrents =~ ^[0-9]+$ ]]; then echo "no torrents found at source"; exit 1; fi
 
+if [ ! -z $limit ]; then migrated=0; fi
+
 for t in $(seq 1 $numTorrents)
 do
+    if [ ! -z $limit ]; then if [ $limit -le $migrated ]; then echo "reached limit"; break; fi; fi
+
     # get the deets
     if [ ! -z $verbose ]; then echo "torrent $t"; fi
     until details="$(transmission-remote $sourceRpcHost -t $t -i)"; do sleep 1; done
@@ -213,6 +224,7 @@ do
 	    fi
 	else
 	    # execute
+	    if [ ! -z $verbose ]; then echo "transfering .torrent and .resume files"; fi
 	    scp "$sourceSshHost:$sourceTorrentPath/\"$name\".*.torrent" "$destinationSshHost:$destinationTorrentPath/."
 	    scp "$sourceSshHost:$sourceResumePath/\"$name\".*.resume" "$destinationSshHost:$destinationResumePath/."
 	    if [ ! -z $remove ]
@@ -222,6 +234,7 @@ do
 		if [ ! -z $verbose ]; then echo "remove response: $removeResponse"; fi
 	    fi
 	fi
+	if [ ! -z $limit ]; then ((migrated=migrated+1)); echo "migrated: $migrated"; fi
     fi
 
     if [ ! -z $verbose ]; then echo; fi
