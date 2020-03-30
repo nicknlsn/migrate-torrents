@@ -36,6 +36,9 @@ Options:
 					details as returned from 'transmission-remote -t 1 -i' and 'transmission-remote -t 1 -it', and
 					if the result contains the text of the value it evaluates to true.
 
+	--age N				only migrate if older than N seconds. this is another condition but to prevent the conditions argument
+					from getting too complex, this age condition is it's own argument.
+
 	-l	--limit N		only migrate the first N torrents
 
 	-r	--remove-from-source	remove the torrent from the source client after it has been migrated
@@ -76,6 +79,11 @@ do
 	    shift
 	    shift
 	    ;;
+	--age)
+	    age="$2"
+	    shift
+	    shift
+	    ;;
 	-l|--limit)
 	    limit="$2"
 	    shift
@@ -105,8 +113,9 @@ then
     echo "provided parameters:"
     echo "source: $source"
     echo "destination: $destination"
-    echo "limit: $limit"
     echo "conditions: $conditions"
+    echo "age: $age"
+    echo "limit: $limit"
     echo "remove: $remove"
     echo "verbose: $verbose"
 fi
@@ -179,6 +188,15 @@ function evalutateCondition() {
 	if [ ! -z $verbose ]; then  echo "grep result: $grepResult"; fi
 	if [[ "$grepResult" == *"$value"* ]]; then results+=( true ); else results+=( false ); fi
     done
+    if [ ! -z $age ]
+    then
+	# if there is no finished date yet, this will evaluate to false
+	if [ ! -z $verbose ]; then echo "checking if torrent is $age or more seconds old"; fi
+	finishedDate=$(date -d "$(echo "$2" | grep "Date finished" | cut -d : -f 2- | sed -e 's/^[[:space:]]*//')" +%s)
+	compareDate=$(($(date +%s)-$age))
+	if [ ! -z $verbose ]; then echo "finishedDate: $finishedDate; compareDate: $compareDate"; fi
+	if [ $finishedDate -le $compareDate ]; then results+=( true ); else results+=( false ); fi
+    fi
     if [ ! -z $verbose ]; then echo "evaluation results: ${results[*]}"; fi
     [[ " ${results[@]} " =~ " false " ]] && result=false || result=true
     eval $__result="'$result'"
