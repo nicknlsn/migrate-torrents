@@ -36,6 +36,8 @@ Options:
 					details as returned from 'transmission-remote -t 1 -i' and 'transmission-remote -t 1 -it', and
 					if the result contains the text of the value it evaluates to true.
 
+	-l	--limit N		only migrate the first N torrents
+
 	-r	--remove-from-source	remove the torrent from the source client after it has been migrated
 
 	--dry-run			don't actually migrate anything, intead just print the commands that will be run during the
