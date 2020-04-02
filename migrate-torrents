@@ -245,13 +245,21 @@ do
 	else
 	    # execute
 	    if [ ! -z $verbose ]; then echo "transfering .torrent and .resume files"; fi
-	    scp "$sourceSshHost:$sourceTorrentPath/\"$name\".*.torrent" "$destinationSshHost:$destinationTorrentPath/."
-	    scp "$sourceSshHost:$sourceResumePath/\"$name\".*.resume" "$destinationSshHost:$destinationResumePath/."
-	    if [ ! -z $remove ]
+	    if scp "$sourceSshHost:$sourceTorrentPath/\"$name\".*.torrent" "$destinationSshHost:$destinationTorrentPath/."
 	    then
-		if [ ! -z $verbose ]; then echo "removing torrent $t"; fi
-		until removeResponse="$(transmission-remote $sourceRpcHost -t $t -r)"; do sleep 1; done
-		if [ ! -z $verbose ]; then echo "remove response: $removeResponse"; fi
+	    	if scp "$sourceSshHost:$sourceResumePath/\"$name\".*.resume" "$destinationSshHost:$destinationResumePath/."
+		then
+		    if [ ! -z $remove ]
+		    then
+			if [ ! -z $verbose ]; then echo "removing torrent $t"; fi
+			until removeResponse="$(transmission-remote $sourceRpcHost -t $t -r)"; do sleep 1; done
+			if [ ! -z $verbose ]; then echo "remove response: $removeResponse"; fi
+		    fi
+		else
+		    echo "failed to copy .resume file: $name"
+		fi
+	    else
+		echo "failed to copy .torrent file: $name"
 	    fi
 	fi
 	if [ ! -z $limit ]; then ((migrated=migrated+1)); echo "migrated: $migrated"; fi
