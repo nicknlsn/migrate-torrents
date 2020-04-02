@@ -159,14 +159,14 @@ then
     echo "use -h for usage"
     exit 1
 fi
-if [ ! -z $conditions ] && [ ! -z $conditionsArray ]
+if [ ! -z "$conditions" ] && [ ! -z "$conditionsArray" ]
 then
     # make sure each condition can be parsed for evaluation
     for i in "${!conditionsArray[@]}"
     do
 	if [ ! -z $verbose ]; then echo "$i: ${conditionsArray[i]}"; fi
 	IFS=':' read grepItem value <<< "${conditionsArray[i]}"
-	if [ -z $grepItem ] || [ -z $value ]
+	if [ -z $grepItem ] || [ -z "$value" ]
 	then
 	    echo "could not parse condition at index $i: ${conditionsArray[i]}"
 	    echo "use -h for usage"
@@ -222,7 +222,7 @@ do
     if [ ! -z $verbose ]; then echo -e "$details"; fi
 
     # if there are conditions, only migrate if they evaluate to true
-    if [ ! -z $conditionsArray ]
+    if [ ! -z "$conditionsArray" ]
     then
 	evalutateCondition shouldMigrate "$details"
     else
