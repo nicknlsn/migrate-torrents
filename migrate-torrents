@@ -11,7 +11,7 @@ Usage: $(basename "$0") -s sourceRpcHost,sourceSshHost,sourceTorrentPath,sourceR
 
 Options:
 	-s	--source		a comma seperated list of required data in the following order:
-					sourceRpcHost: the host nd port of the source transmission client, e.g. 192.168.1.140:9091
+					sourceRpcHost: the host and port of the source transmission client, e.g. 192.168.1.140:9091
 					sourceSshHost: the user and host details to establish an ssh connection with the source,
 					       	       e.g. root@192.168.1.140
 					sourceTorrentPath: the path on the source host to the torrent files
@@ -19,6 +19,7 @@ Options:
 					example: 192.168.1.140:9091,root@192.168.1.140,/mnt/torrents/config/torrents,/mnt/torrents/config/resume
 
 	-d	--destination		a comma seperated list of required data in the following order:
+					destinationRpcHost: the host and port of the destination transmission client, e.g. 192.168.1.142:9091
 					destinationSshHost: the user and host details to establish an ssh connection with the
 						    	    destination, similar to the sourceSshHost above
 					destinationTorrentPath: the path on the destination host where the torrent files should
@@ -133,7 +134,7 @@ then
 fi
 
 IFS=',' read sourceRpcHost sourceSshHost sourceTorrentPath sourceResumePath <<< "$source"
-IFS=',' read destinationSshHost destinationTorrentPath destinationResumePath <<< "$destination"
+IFS=',' read destinationRpcHost destinationSshHost destinationTorrentPath destinationResumePath <<< "$destination"
 IFS=',' read -r -a conditionsArray <<< "$conditions"
 
 if [ ! -z $verbose ]
@@ -142,6 +143,7 @@ then
     echo "sourceSshHost: $sourceSshHost"
     echo "sourceTorrentPath: $sourceTorrentPath"
     echo "sourceResumePath: $sourceResumePath"
+    echo "destinationRpcHost: $destinationRpcHost"
     echo "destinationSshHost: $destinationSshHost"
     echo "destinationTorrentPath: $destinationTorrentPath"
     echo "destinationResumePath: $destinationResumePath"
@@ -153,7 +155,7 @@ then
     echo "use -h for usage"
     exit 1
 fi
-if [ -z $destinationSshHost ] || [ -z $destinationSshHost ] || [ -z $destinationResumePath ]
+if [ -z $destinationRpcHost ] || [ -z $destinationSshHost ] || [ -z $destinationSshHost ] || [ -z $destinationResumePath ]
 then
     echo "could not parse destination argument: $destination"
     echo "use -h for usage"
@@ -219,7 +221,7 @@ do
     if [ ! -z $verbose ]; then echo "torrent $t"; fi
     until details="$(transmission-remote $sourceRpcHost -t $t -i)"; do sleep 1; done
     until details="${details}\n$(transmission-remote $sourceRpcHost -t $t -it)"; do sleep 1; done
-    if [ ! -z $verbose ]; then echo -e "$details"; fi
+    if [ ! -z $verbose ]; then echo -e "torrent details:\n$details"; fi
 
     # if there are conditions, only migrate if they evaluate to true
     if [ ! -z "$conditionsArray" ]
@@ -238,6 +240,7 @@ do
 	then
 	    echo "scp $sourceSshHost:$sourceTorrentPath/$name.*.torrent $destinationSshHost:$destinationTorrentPath/."
 	    echo "scp $sourceSshHost:$sourceResumePath/$name.*.resume $destinationSshHost:$destinationResumePath/."
+	    echo "transmission-remote $sourceRpcHost -a $name.torrent"
 	    if [ ! -z $remove ]
 	    then
 		echo "transmission-remote $sourceRpcHost -t $t -r"
@@ -247,13 +250,35 @@ do
 	    if [ ! -z $verbose ]; then echo "transfering .torrent and .resume files"; fi
 	    if scp "$sourceSshHost:$sourceTorrentPath/\"$name\".*.torrent" "$destinationSshHost:$destinationTorrentPath/."
 	    then
+	        if [ ! -z $verbose ]; then echo "done transfering .torrent file"; fi
 	    	if scp "$sourceSshHost:$sourceResumePath/\"$name\".*.resume" "$destinationSshHost:$destinationResumePath/."
 		then
-		    if [ ! -z $remove ]
+	            if [ ! -z $verbose ]; then echo "done transfering .resume file"; fi
+	            if [ ! -z $verbose ]; then echo "copying temp .torrent file"; fi
+		    # copy .torrent file to local temp file
+		    tmpTorrentFile=$(mktemp /tmp/"$name".torrent.XXXXXX)
+	            if [ ! -z $verbose ]; then echo "created empty temp file: $tmpTorrentFile"; fi
+		    if scp -T "$sourceSshHost:$sourceTorrentPath/\"$name\".*.torrent" "$tmpTorrentFile"
 		    then
-			if [ ! -z $verbose ]; then echo "removing torrent $t"; fi
-			until removeResponse="$(transmission-remote $sourceRpcHost -t $t -r)"; do sleep 1; done
-			if [ ! -z $verbose ]; then echo "remove response: $removeResponse"; fi
+	                if [ ! -z $verbose ]; then echo "temp .torrent file: $tmpTorrentFile"; fi
+		        # add .torrent file to destination host
+	                if [ ! -z $verbose ]; then echo "adding temp .torrent file"; fi
+		        until addTorrentResponse="$(transmission-remote $destinationRpcHost -a "$tmpTorrentFile")"; do sleep 1; done
+	                if [ ! -z $verbose ]; then echo "add response: $addTorrentResponse"; fi
+		        rm "$tmpTorrentFile"
+		        if [ ! -z $verbose ]; then echo "remove response: $addTorrentResponse"; fi
+		        if [[ "$addTorrentResponse" == *"success"* ]] && [ ! -z $remove ]
+		        then
+			    if [ ! -z $verbose ]; then echo "removing torrent $t"; fi
+			    until removeResponse="$(transmission-remote $sourceRpcHost -t $t -r)"; do sleep 1; done
+			    if [ ! -z $verbose ]; then echo "remove response: $removeResponse"; fi
+		        else
+			    echo "not removing torrent because add failed"
+		        fi
+			if [ ! -z $limit ]; then ((migrated=migrated+1)); echo "migrated: $migrated"; fi
+		    else
+			echo "failed to copy temp .torrent file: $name"
+			rm "$tmpTorrentFile"
 		    fi
 		else
 		    echo "failed to copy .resume file: $name"
@@ -262,7 +287,6 @@ do
 		echo "failed to copy .torrent file: $name"
 	    fi
 	fi
-	if [ ! -z $limit ]; then ((migrated=migrated+1)); echo "migrated: $migrated"; fi
     fi
 
     if [ ! -z $verbose ]; then echo; fi
