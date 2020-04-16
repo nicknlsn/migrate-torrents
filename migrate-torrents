@@ -218,10 +218,11 @@ do
     if [ ! -z $limit ]; then if [ $limit -le $migrated ]; then echo "reached limit"; break; fi; fi
 
     # get the deets
-    if [ ! -z $verbose ]; then echo "torrent $t"; fi
+    if [ ! -z $verbose ]; then echo -n "torrent $t: "; fi
     until details="$(transmission-remote $sourceRpcHost -t $t -i)"; do sleep 1; done
     until details="${details}\n$(transmission-remote $sourceRpcHost -t $t -it)"; do sleep 1; done
-    if [ ! -z $verbose ]; then echo -e "torrent details:\n$details"; fi
+    if [[ -z "${details//\\n}" ]]; then echo "empty torrent number"; continue; fi
+    if [ ! -z $verbose ]; then echo -e "\n$details"; fi
 
     # if there are conditions, only migrate if they evaluate to true
     if [ ! -z "$conditionsArray" ]
