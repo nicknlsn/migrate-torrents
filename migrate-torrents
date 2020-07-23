@@ -267,7 +267,6 @@ do
 		        until addTorrentResponse="$(transmission-remote $destinationRpcHost -a "$tmpTorrentFile")"; do sleep 1; done
 	                if [ ! -z $verbose ]; then echo "add response: $addTorrentResponse"; fi
 		        rm "$tmpTorrentFile"
-		        if [ ! -z $verbose ]; then echo "remove response: $addTorrentResponse"; fi
 		        if [[ "$addTorrentResponse" == *"success"* ]] && [ ! -z $remove ]
 		        then
 			    if [ ! -z $verbose ]; then echo "removing torrent $t"; fi
