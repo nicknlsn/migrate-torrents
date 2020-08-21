@@ -44,6 +44,10 @@ Options:
 
 	-r	--remove-from-source	remove the torrent from the source client after it has been migrated
 
+	-i	--identifier		the identifier to use for the filenames of the .torrent and .resume files. transmission 3.0 uses the
+					torrent hash; previous versions use the torrent name. available options: hash, name. the default is
+					to use the hash.
+
 	--dry-run			don't actually migrate anything, intead just print the commands that will be run during the
 					actual migration
 
@@ -94,6 +98,11 @@ do
 	    remove=true
 	    shift
 	    ;;
+	-i|--identifier)
+	    identifierOption="$2"
+	    shift
+	    shift
+	    ;;
 	--dry-run)
 	    dryRun=true
 	    shift
@@ -108,6 +117,12 @@ do
 	    ;;
     esac
 done
+if [ -z $identifierOption ]
+then
+    identifier="hash"
+else
+    identifier=$identifierOption
+fi
 
 if [ ! -z $verbose ]
 then
@@ -118,6 +133,7 @@ then
     echo "age: $age"
     echo "limit: $limit"
     echo "remove: $remove"
+    echo "identifier: $identifier"
     echo "verbose: $verbose"
 fi
 
@@ -175,6 +191,12 @@ then
 	    exit 1;
 	fi
     done
+fi
+if [ $identifier != "name" ] && [ $identifier != "hash" ]
+then
+    echo "invalid identifier option: $identifier"
+    echo "use -h for usage"
+    exit 1
 fi
 
 # start doing work
@@ -236,12 +258,21 @@ do
     if [ "$shouldMigrate" = "true" ]
     then
 	name="$(echo "$details" | grep "Name:" | cut -d : -f 2 | sed -e 's/^[[:space:]]*//')"
+	torrentHash="$(echo "$details" | grep "Hash:" | cut -d : -f 2 | sed -e 's/^[[:space:]]*//')"
+
+	if [ $identifier == "name" ]
+	then
+	    fileName=$name
+	else
+	    fileName=$torrentHash
+	fi
+	if [ ! -z $verbose ]; then echo "fileName: $fileName"; fi
 
 	if [ ! -z $dryRun ]
 	then
-	    echo "scp $sourceSshHost:$sourceTorrentPath/$name.*.torrent $destinationSshHost:$destinationTorrentPath/."
-	    echo "scp $sourceSshHost:$sourceResumePath/$name.*.resume $destinationSshHost:$destinationResumePath/."
-	    echo "transmission-remote $sourceRpcHost -a $name.torrent"
+	    echo "scp $sourceSshHost:$sourceTorrentPath/$fileName*.torrent $destinationSshHost:$destinationTorrentPath/."
+	    echo "scp $sourceSshHost:$sourceResumePath/$fileName*.resume $destinationSshHost:$destinationResumePath/."
+	    echo "transmission-remote $sourceRpcHost -a $fileName.torrent"
 	    if [ ! -z $remove ]
 	    then
 		echo "transmission-remote $sourceRpcHost -t $t -r"
@@ -249,17 +280,17 @@ do
 	else
 	    # execute
 	    if [ ! -z $verbose ]; then echo "transfering .torrent and .resume files"; fi
-	    if scp "$sourceSshHost:$sourceTorrentPath/\"$name\".*.torrent" "$destinationSshHost:$destinationTorrentPath/."
+	    if scp "$sourceSshHost:$sourceTorrentPath/\"$fileName\"*.torrent" "$destinationSshHost:$destinationTorrentPath/."
 	    then
 	        if [ ! -z $verbose ]; then echo "done transfering .torrent file"; fi
-	    	if scp "$sourceSshHost:$sourceResumePath/\"$name\".*.resume" "$destinationSshHost:$destinationResumePath/."
+		if scp "$sourceSshHost:$sourceResumePath/\"$fileName\"*.resume" "$destinationSshHost:$destinationResumePath/."
 		then
 	            if [ ! -z $verbose ]; then echo "done transfering .resume file"; fi
 	            if [ ! -z $verbose ]; then echo "copying temp .torrent file"; fi
 		    # copy .torrent file to local temp file
-		    tmpTorrentFile=$(mktemp /tmp/"$name".torrent.XXXXXX)
+		    tmpTorrentFile=$(mktemp /tmp/"$fileName".torrent.XXXXXX)
 	            if [ ! -z $verbose ]; then echo "created empty temp file: $tmpTorrentFile"; fi
-		    if scp -T "$sourceSshHost:$sourceTorrentPath/\"$name\".*.torrent" "$tmpTorrentFile"
+		    if scp -T "$sourceSshHost:$sourceTorrentPath/\"$fileName\"*.torrent" "$tmpTorrentFile"
 		    then
 	                if [ ! -z $verbose ]; then echo "temp .torrent file: $tmpTorrentFile"; fi
 		        # add .torrent file to destination host
@@ -273,18 +304,18 @@ do
 			    until removeResponse="$(transmission-remote $sourceRpcHost -t $t -r)"; do sleep 1; done
 			    if [ ! -z $verbose ]; then echo "remove response: $removeResponse"; fi
 		        else
-			    echo "not removing torrent because add failed"
+			    echo "not removing torrent"
 		        fi
 			if [ ! -z $limit ]; then ((migrated=migrated+1)); echo "migrated: $migrated"; fi
 		    else
-			echo "failed to copy temp .torrent file: $name"
+			echo "failed to copy temp .torrent file: $fileName"
 			rm "$tmpTorrentFile"
 		    fi
 		else
-		    echo "failed to copy .resume file: $name"
+		    echo "failed to copy .resume file: $fileName"
 		fi
 	    else
-		echo "failed to copy .torrent file: $name"
+		echo "failed to copy .torrent file: $fileName"
 	    fi
 	fi
     fi
