@@ -280,17 +280,17 @@ do
 	else
 	    # execute
 	    if [ ! -z $verbose ]; then echo "transfering .torrent and .resume files"; fi
-	    if scp "$sourceSshHost:$sourceTorrentPath/\"$fileName\"*.torrent" "$destinationSshHost:$destinationTorrentPath/."
+	    if scp "$sourceSshHost:$sourceTorrentPath/$fileName.torrent" "$destinationSshHost:$destinationTorrentPath/."
 	    then
 	        if [ ! -z $verbose ]; then echo "done transfering .torrent file"; fi
-		if scp "$sourceSshHost:$sourceResumePath/\"$fileName\"*.resume" "$destinationSshHost:$destinationResumePath/."
+		if scp "$sourceSshHost:$sourceResumePath/$fileName.resume" "$destinationSshHost:$destinationResumePath/."
 		then
 	            if [ ! -z $verbose ]; then echo "done transfering .resume file"; fi
 	            if [ ! -z $verbose ]; then echo "copying temp .torrent file"; fi
 		    # copy .torrent file to local temp file
-		    tmpTorrentFile=$(mktemp /tmp/"$fileName".torrent.XXXXXX)
+		    tmpTorrentFile=$(mktemp /tmp/$fileName.torrent.XXXXXX)
 	            if [ ! -z $verbose ]; then echo "created empty temp file: $tmpTorrentFile"; fi
-		    if scp -T "$sourceSshHost:$sourceTorrentPath/\"$fileName\"*.torrent" "$tmpTorrentFile"
+		    if scp -T "$sourceSshHost:$sourceTorrentPath/$fileName.torrent" "$tmpTorrentFile"
 		    then
 	                if [ ! -z $verbose ]; then echo "temp .torrent file: $tmpTorrentFile"; fi
 		        # add .torrent file to destination host
